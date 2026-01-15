@@ -1,3 +1,4 @@
+import axios from "axios";
 import bcrypt from "bcrypt";
 import prisma from "../../prisma/client.js";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../../utils/token.js";
@@ -166,5 +167,77 @@ export const logout = async ({ refreshToken }) => {
     }
   }
 };
+
+
+
+export const googleOAuth = async (code) => {
+  // 1. Exchange code for access token
+  const tokenRes = await axios.post(
+    "https://oauth2.googleapis.com/token",
+    {
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      code,
+      grant_type: "authorization_code",
+      redirect_uri: process.env.GOOGLE_CALLBACK_URL
+    }
+  );
+
+  const { access_token } = tokenRes.data;
+
+  // 2. Fetch user profile
+  const profileRes = await axios.get(
+    "https://www.googleapis.com/oauth2/v2/userinfo",
+    {
+      headers: {
+        Authorization: `Bearer ${access_token}`
+      }
+    }
+  );
+
+  const { id, email } = profileRes.data;
+
+  // 3. Find or create user
+  let user = await prisma.user.findFirst({
+    where: {
+      provider: "google",
+      providerId: id
+    }
+  });
+
+  if (!user) {
+    user = await prisma.user.create({
+      data: {
+        email,
+        provider: "google",
+        providerId: id,
+        isVerified: true
+      }
+    });
+  }
+
+  // 4. Issue tokens (same as normal login)
+  const accessToken = signAccessToken({
+    sub: user.id,
+    email: user.email
+  });
+
+  const refreshToken = signRefreshToken({
+    sub: user.id
+  });
+
+  const refreshTokenHash = await bcrypt.hash(refreshToken, 12);
+
+  await prisma.session.create({
+    data: {
+      userId: user.id,
+      refreshTokenHash,
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    }
+  });
+
+  return { accessToken, refreshToken };
+};
+
 
 

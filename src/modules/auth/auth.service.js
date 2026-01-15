@@ -1,5 +1,7 @@
 import bcrypt from "bcrypt";
 import prisma from "../../prisma/client.js";
+import { signAccessToken } from "../../utils/token.js";
+
 
 export const register = async ({ email, password }) => {
   if (!email || !password) {
@@ -44,8 +46,12 @@ export const login = async ({ email, password }) => {
     throw new Error("Invalid credentials");
   }
 
-  return {
-    id: user.id,
+  const accessToken = signAccessToken({
+    sub: user.id,
     email: user.email
+  });
+
+  return {
+    accessToken
   };
 };

@@ -1,6 +1,6 @@
 import bcrypt from "bcrypt";
 import prisma from "../../prisma/client.js";
-import { signAccessToken } from "../../utils/token.js";
+import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../../utils/token.js";
 
 
 export const register = async ({ email, password }) => {
@@ -51,7 +51,112 @@ export const login = async ({ email, password }) => {
     email: user.email
   });
 
+  const refreshToken = signRefreshToken({
+    sub: user.id,
+  });
+
+ const refreshTokenHash = await bcrypt.hash(refreshToken, 12);
+
+
+ await prisma.session.create({
+    data: {
+      userId: user.id,
+      refreshTokenHash,
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    }
+  });
+
+
   return {
-    accessToken
+    accessToken, refreshToken
+  };
+
+};
+
+export const refresh = async ({ refreshToken }) => {
+  if (!refreshToken) {
+    throw new Error("Unauthorized");
+  }
+
+  let payload;
+  try {
+    payload = verifyRefreshToken(refreshToken);
+  } catch {
+    throw new Error("Unauthorized");
+  }
+
+  const sessions = await prisma.session.findMany({
+    where: { userId: payload.sub }
+  });
+
+  let matchedSession = null;
+
+  for (const session of sessions) {
+    const match = await bcrypt.compare(
+      refreshToken,
+      session.refreshTokenHash
+    );
+    if (match) {
+      matchedSession = session;
+      break;
+    }
+  }
+
+  //  Refresh token reuse detected
+  if (!matchedSession) {
+    await prisma.session.deleteMany({
+      where: { userId: payload.sub }
+    });
+    throw new Error("Refresh token reuse detected");
+  }
+
+  // Rotate: delete old session
+  await prisma.session.delete({
+    where: { id: matchedSession.id }
+  });
+
+  // Issue new tokens
+  const newAccessToken = signAccessToken({
+    sub: payload.sub
+  });
+
+  const newRefreshToken = signRefreshToken({
+    sub: payload.sub
+  });
+
+  const newRefreshTokenHash = await bcrypt.hash(newRefreshToken, 12);
+
+  await prisma.session.create({
+    data: {
+      userId: payload.sub,
+      refreshTokenHash: newRefreshTokenHash,
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    }
+  });
+
+  return {
+    accessToken: newAccessToken,
+    refreshToken: newRefreshToken
   };
 };
+
+export const logout = async ({ refreshToken }) => {
+  if (!refreshToken) return;
+
+  const sessions = await prisma.session.findMany();
+
+  for (const session of sessions) {
+    const match = await bcrypt.compare(
+      refreshToken,
+      session.refreshTokenHash
+    );
+    if (match) {
+      await prisma.session.delete({
+        where: { id: session.id }
+      });
+      break;
+    }
+  }
+};
+
+

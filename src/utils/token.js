@@ -9,3 +9,11 @@ export const signAccessToken =(payload) => {
 export const verifyAccessToken =(token) => {
     return jwt.verify(token, process.env.JWT_SECRET)
 }
+
+export const signRefreshToken = (payload) =>
+  jwt.sign(payload, process.env.REFRESH_TOKEN_SECRET, {
+    expiresIn: process.env.REFRESH_TOKEN_EXPIRES_IN
+  });
+
+export const verifyRefreshToken = (token) =>
+  jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);

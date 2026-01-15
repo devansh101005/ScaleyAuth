@@ -46,9 +46,17 @@ export const login = async ({ email, password }) => {
     throw new Error("Invalid credentials");
   }
 
+  const roles = await prisma.userRole.findMany({
+  where: { userId: user.id },
+  include: { role: true }
+});
+
+const roleNames = roles.map(r => r.role.name);
+
   const accessToken = signAccessToken({
     sub: user.id,
-    email: user.email
+    email: user.email,
+    roles: roleNames
   });
 
   const refreshToken = signRefreshToken({

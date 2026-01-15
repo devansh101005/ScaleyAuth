@@ -1,0 +1,9 @@
+node_modules
+.env
+.git
+*.log
+*.md
+tests
+coverage
+.gitignore
+tmpclaude*
